@@ -1,0 +1,196 @@
+<html>
+<title> CRM vs Finance Payments Recon Tool
+</title>
+<body>
+<h1>CRM vs Finance Teams - Payments Recon Tool</h1>
+<form class="input-group col-4 mb-5">
+     <input type="file" class="form-control" id="myFile" />
+     <button class="btn ml-2" type="submit" id="upload-btn">
+      Upload
+     </button>
+</form>
+
+<div id="payment-table-container">
+	
+</div> 
+
+<div id="ledger-table-container">
+	
+</div> 
+
+
+<!-- 
+src="https://cdn.jsdelivr.net/npm/xlsx@0.16.8/dist/xlsx.full.min.js" 
+integrity="sha256-Ic7HP804IrYks4vUqX1trFF1Nr33RjONeJESZnYxsOY="
+https://www.jsdelivr.com/package/npm/xlsx
+-->
+
+<script
+   src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
+   crossorigin="anonymous"
+ >
+</script>
+
+<script>
+let projects = {
+  "Engrace 1": ["E1-", 0, 3, 14, 40],
+  "Engrace-1": ["E1-", 0, 3, 14, 40],
+  "Engrace 01": ["E1-", 0, 3, 17, 40]
+};
+
+// for (const [key, value] of Object.entries(projects)) {
+//   let val = value;
+//   console.log(key, value, Array.isArray(value), value[0],value[1], value[2], value[3], value[4]);
+// }
+</script>
+
+<script>
+let selectedFile;
+let ledgerEntries=[];
+// let ledgerIndex = 0;
+let newRecHdr = false;
+
+
+function generateTable(data) {  
+	// console.log(" generating Table for ", data);
+	let table = '<table>';  
+	table += '<tr>';
+	table += '<th>Sale ID</th><th>Customer Name</th><th>Unit Desc</th>';
+	table += '<th>Payment Amount</th><th>Payment Date</th><th>Comments / Details</th>';
+	table += '</tr>';  
+	data.forEach(item => {  
+	table += `<tr><td>${item['Sale ID']}</td><td>${item['Customer Name']}</td><td>${item['Unit Desc']}</td>`;  
+	table += `<td>${item['Payment Amount']}</td><td>${item['Payment Date']}</td><td>${item['Comments / Details']}</td></tr>`;  
+	});  
+	table += '</table>';  
+	return table;  
+}
+
+function isFound(item, text){
+  return Object.values(item).includes(text); //("Ledger:");
+}
+
+function getCust(str){
+  let unit = "";
+  let customer = "";
+  for (const [key, value] of Object.entries(projects)) {
+    if (str.includes(key)){
+      unit = value[0]+ str.substring(value[1], value[2]);
+      customer = str.substring(value[3], value[4]);
+    }
+  }
+  return [unit, customer];
+}
+
+function readLedgerReport(arr, maxLen){
+  // console.log("readLedgerReport called", arr, maxLen);
+  let unit = "";
+  let cusomer = "";
+  let ledgerIndex = 0;
+  do {
+    let newItem = arr[ledgerIndex];
+    if (newItem instanceof Object) {
+      if (isFound(newItem,"Ledger:")) { 
+        newRecHdr = false; 
+        [unit,customer] = getCust(newItem['B']);
+      }
+      if (newRecHdr){
+        if (newItem['A'] != undefined && newItem['G'] != undefined && newItem['D'] != undefined 
+            && newItem['D'] == 'Receipt'){
+          // console.log(newItem['A'], newItem['G']);
+          let newRec = { "Payment Date": "", "Sale ID": "", "Payment Amount": 0, "Customer Name": customer};
+          newRec['Payment Date'] = formatDate(newItem['A']);
+          newRec['Payment Amount'] = newItem['G'];
+          newRec['Unit Desc'] = unit;
+          newRec['Comments / Details'] = arr[ledgerIndex+1]['C'];
+          ledgerEntries.push(newRec);
+        }
+      }      
+      if (isFound(newItem, "Date") && isFound(newItem, "Credit")) { newRecHdr = true;}
+    }
+    ledgerIndex++; 
+  } while (ledgerIndex < maxLen)
+}
+
+function formatDate(dateString) {
+  const pad = (number) => (number < 10 ? `0${number}` : number);
+  const months = {'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr':4, 'May':5, 'Jun':6, 
+  'Jul':7, 'Aug':8, 'Sep':9, 'Oct':10, 'Nov':11, 'Dec':12};
+  let parts = dateString.split('-');
+
+  let day = pad(parts[0]);
+  let month = pad(months[parts[1]]);
+  let year = 2000+parts[2]%100;
+
+  return `${year}-${month}-${day}`;
+}
+
+function convertVal(item, index, arr){
+  arr[index]['Payment Amount'] = parseInt(arr[index]['Payment Amount']);
+  arr[index]['Payment Date'] = formatDate(arr[index]['Payment Date']);
+  // arr[index]['Sale Price'] = parseInt(arr[index]['Sale Price']);
+}
+
+function mySort(data) {
+  console.log("Sorting data....")
+  data.forEach(convertVal);
+  data.sort( (a, b) => { return a['Payment Date'] > b['Payment Date'] ? 1 : -1 } );
+  data.sort( (a, b) => { return a['Sale ID'] > b['Sale ID'] ? 1 : -1 } );
+  return data;
+}
+
+function processLedgerData(result){
+  console.log("Ledger Lines: ", result.length);
+  readLedgerReport(result, result.length);
+  // console.log(ledgerEntries);
+  console.log("Completed");
+  // sorted_result = mySort(ledgerEntries);
+  const tableContainer = document.getElementById('ledger-table-container');
+  // console.log(sorted_result);
+  tableContainer.innerHTML = generateTable(ledgerEntries);  
+}
+
+// Get the selected file when input changes
+document.getElementById("myFile").addEventListener("change", (event) => {
+  selectedFile = event.target.files[0];
+  console.log("selected file: ", selectedFile);
+});
+
+// Handle upload button click
+document.getElementById("upload-btn").addEventListener("click", (e) => {
+  console.log("Reading File.");
+  e.preventDefault();
+  let fileReader = new FileReader();
+
+  fileReader.readAsBinaryString(selectedFile); // Read the selected file as binary string
+
+  fileReader.onload = (event) => {  // Process the file data when it's loaded
+    let fileData = event.target.result;
+    let workbook = XLSX.read( // Read the Excel workbook
+      fileData, { type: "binary" }, { dateNF: "dd/mmm/yy" }
+    );
+
+    // Change each sheet in the workbook to json
+    workbook.SheetNames.forEach(async (sheet) => {
+      const result = XLSX.utils.sheet_to_json(workbook.Sheets[sheet], {
+        raw: false,
+      });
+      console.log("Sheet Name: ", sheet);
+      if( sheet == 'Payments123'){
+        sorted_result = mySort(result);
+      	const tableContainer = document.getElementById('payment-table-container');
+        // console.log(sorted_result);
+	  	  tableContainer.innerHTML = generateTable(sorted_result);  
+	    }
+      if( sheet == 'Ledger Vouchers'){
+        processLedgerData(result);
+      }
+    });
+  };
+});
+</script>
+
+</body>
+
+
+</html>
