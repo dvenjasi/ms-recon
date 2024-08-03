@@ -193,18 +193,29 @@ https://www.jsdelivr.com/package/npm/xlsx
       } while (++ledgerIndex < maxLen)
     }
 
+    function ExcelDateToJSDate(date) {
+      return new Date(Math.round((date - 25569)*86400*1000));
+    }
+
     function formatDate(dateString) {
       const months = {
         'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
         'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
       };
-      let parts = dateString.split('-');
-
-      let day = pad(parseInt(parts[0]));
-      let month = pad(months[parts[1]]);
-      let year = 2000 + parseInt(parts[2]) % 100;
-
-      return `${year}-${month}-${day}`;
+      if (typeof dateString === 'number'){
+        let dt = new Date(Math.round((dateString - 25569)*86400*1000));
+        let day = pad(dt.getDate());
+        let month = pad(dt.getMonth()+1);
+        let year = dt.getFullYear();
+        return `${year}-${month}-${day}`;
+      } else if(typeof dateString === 'string'){
+        let parts = dateString.split('-');
+        let day = pad(parseInt(parts[0]));
+        let month = pad(months[parts[1]]);
+        let year = 2000 + parseInt(parts[2]) % 100;
+        return `${year}-${month}-${day}`;
+      }
+      return '';
     }
 
     function convertVal(item, index, arr) {
@@ -402,8 +413,8 @@ https://www.jsdelivr.com/package/npm/xlsx
               if (matched || pRec.hasOwnProperty('Match')) { return; }
               matchCd = matchRecords(pRec, ledger);
               if (matchCd != '') {
-                ledgersByUnit[unit][index]['Match'] = matchCd + mcount;
-                paymentsByUnit[unit][pInd]['Match'] = matchCd + mcount;
+                ledgersByUnit[unit][index]['Match'] = matchCd + "(#" + mcount + ")";
+                paymentsByUnit[unit][pInd]['Match'] = matchCd + "(#" + mcount + ")";
                 mcount++; matched = true;
               }
             });
@@ -428,11 +439,12 @@ https://www.jsdelivr.com/package/npm/xlsx
         );
 
         workbook.SheetNames.forEach(async (sheet) => {  // Change each sheet in the workbook to json
-          let hdr = { raw: false }
+          let hdr = { raw: true, rawNumbers: true }
           const result = XLSX.utils.sheet_to_json(workbook.Sheets[sheet], hdr);
           console.log("Sheet Name: ", sheet);
           if (sheet == 'Payments') {
             payments = [...result];
+            console.log("Payment Raw records:", result);
             for (i = 0; i < payments.length; i++) {
               payments[i]['Cheque'] = chequeNumInStr(payments[i]['Comments / Details']);
             }
