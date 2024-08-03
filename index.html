@@ -1,196 +1,517 @@
 <html>
-<title> CRM vs Finance Payments Recon Tool
-</title>
+
+<head>
+  <title> CRM vs Finance Payments Recon Tool</title>
+  <style>
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+
+    td,
+    th {
+      text-align: left;
+      vertical-align: top;
+    }
+  </style>
+</head>
+
 <body>
-<h1>CRM vs Finance Teams - Payments Recon Tool</h1>
-<form class="input-group col-4 mb-5">
-     <input type="file" class="form-control" id="myFile" />
-     <button class="btn ml-2" type="submit" id="upload-btn">
-      Upload
-     </button>
-</form>
+  <h1>CRM vs Finance Teams - Payments Recon Tool</h1>
+  <form class="input-group col-4 mb-5">
+    <table>
+      <tr>
+        <td width="45%">
+          Select the payments tracker excel sheet to perform recon
+          <br /><br />
+          <input type="file" class="form-control" id="paymentFile" />
+        </td>
+        <td width="10%">&nbsp;</td>
+        <td width="45%">
+          Select the ledger report excel sheet (provided by Accounts Team) to perform recon.<br>
+          <strong>Note: </strong>The first row of the file should have column titles A, B, C, D... etc.
+          <br /><br />
+          <input type="file" class="form-control" id="ledgerFile" />
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <label for="fyYear">Choose a date range for recon</label>
+          <select name="fyYear" id="fyYear">
+            <option value="FY2024-25">FY2024-25</option>
+            <option value="FY2023-24" selected="selected">FY2023-24</option>
+            <option value="FY2022-23">FY2022-23</option>
+            <option value="FY2021-22">FY2021-22</option>
+          </select>
+        </td>
+        <td>&nbsp;</td>
+        <td>&nbsp;
+        </td>
+      </tr>
+    </table>
+    <button class="btn ml-2" type="submit" id="upload-btn">
+      Upload & Recon
+    </button>
+  </form>
 
-<div id="payment-table-container">
-	
-</div> 
+  <div id="recon-table-container">
+  </div>
 
-<div id="ledger-table-container">
-	
-</div> 
+  <div id="payment-table-container">
+  </div>
 
+  <div id="ledger-table-container">
+  </div>
 
-<!-- 
+  <!-- 
 src="https://cdn.jsdelivr.net/npm/xlsx@0.16.8/dist/xlsx.full.min.js" 
 integrity="sha256-Ic7HP804IrYks4vUqX1trFF1Nr33RjONeJESZnYxsOY="
 https://www.jsdelivr.com/package/npm/xlsx
 -->
 
-<script
-   src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
-   crossorigin="anonymous"
- >
-</script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin="anonymous">
+  </script>
 
-<script>
-let projects = {
-  "Engrace 1": ["E1-", 0, 3, 14, 40],
-  "Engrace-1": ["E1-", 0, 3, 14, 40],
-  "Engrace 01": ["E1-", 0, 3, 17, 40]
-};
-
-// for (const [key, value] of Object.entries(projects)) {
-//   let val = value;
-//   console.log(key, value, Array.isArray(value), value[0],value[1], value[2], value[3], value[4]);
-// }
-</script>
-
-<script>
-let selectedFile;
-let ledgerEntries=[];
-// let ledgerIndex = 0;
-let newRecHdr = false;
-
-
-function generateTable(data) {  
-	// console.log(" generating Table for ", data);
-	let table = '<table>';  
-	table += '<tr>';
-	table += '<th>Sale ID</th><th>Customer Name</th><th>Unit Desc</th>';
-	table += '<th>Payment Amount</th><th>Payment Date</th><th>Comments / Details</th>';
-	table += '</tr>';  
-	data.forEach(item => {  
-	table += `<tr><td>${item['Sale ID']}</td><td>${item['Customer Name']}</td><td>${item['Unit Desc']}</td>`;  
-	table += `<td>${item['Payment Amount']}</td><td>${item['Payment Date']}</td><td>${item['Comments / Details']}</td></tr>`;  
-	});  
-	table += '</table>';  
-	return table;  
-}
-
-function isFound(item, text){
-  return Object.values(item).includes(text); //("Ledger:");
-}
-
-function getCust(str){
-  let unit = "";
-  let customer = "";
-  for (const [key, value] of Object.entries(projects)) {
-    if (str.includes(key)){
-      unit = value[0]+ str.substring(value[1], value[2]);
-      customer = str.substring(value[3], value[4]);
+  <script>
+    let reconDate = {
+      "FY2021-22": ["2021-04-01", "2022-03-31"],
+      "FY2022-23": ["2022-04-01", "2023-03-31"],
+      "FY2023-24": ["2023-04-01", "2024-03-31"],
+      "FY2024-25": ["2024-04-01", "2025-03-31"]
     }
-  }
-  return [unit, customer];
-}
+    let projects = {
+      "Engrace 1": ["E1-", 0, 3, 14, 40],
+      "Engrace-1": ["E1-", 0, 3, 14, 40],
+      "Engrace 01": ["E1-", 0, 3, 17, 40]
+    };
+  </script>
 
-function readLedgerReport(arr, maxLen){
-  // console.log("readLedgerReport called", arr, maxLen);
-  let unit = "";
-  let cusomer = "";
-  let ledgerIndex = 0;
-  do {
-    let newItem = arr[ledgerIndex];
-    if (newItem instanceof Object) {
-      if (isFound(newItem,"Ledger:")) { 
-        newRecHdr = false; 
-        [unit,customer] = getCust(newItem['B']);
-      }
-      if (newRecHdr){
-        if (newItem['A'] != undefined && newItem['G'] != undefined && newItem['D'] != undefined 
-            && newItem['D'] == 'Receipt'){
-          // console.log(newItem['A'], newItem['G']);
-          let newRec = { "Payment Date": "", "Sale ID": "", "Payment Amount": 0, "Customer Name": customer};
-          newRec['Payment Date'] = formatDate(newItem['A']);
-          newRec['Payment Amount'] = newItem['G'];
-          newRec['Unit Desc'] = unit;
-          newRec['Comments / Details'] = arr[ledgerIndex+1]['C'];
-          ledgerEntries.push(newRec);
-        }
-      }      
-      if (isFound(newItem, "Date") && isFound(newItem, "Credit")) { newRecHdr = true;}
-    }
-    ledgerIndex++; 
-  } while (ledgerIndex < maxLen)
-}
+  <script>
+    let ledgerFile = '';
+    let paymentFile = '';
+    let ledgerEntries = [];
+    let payments = [];
+    let ledgersByUnit = {};
+    let paymentsByUnit = {};
+    let newRecHdr = false;
+    let fyYear;
+    let minDt;
+    let maxDt;
+    let payDataReady = false;
+    let ledgerDataReady = false;
+    let reconDone = false;
 
-function formatDate(dateString) {
-  const pad = (number) => (number < 10 ? `0${number}` : number);
-  const months = {'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr':4, 'May':5, 'Jun':6, 
-  'Jul':7, 'Aug':8, 'Sep':9, 'Oct':10, 'Nov':11, 'Dec':12};
-  let parts = dateString.split('-');
+    const pad = (number) => (number < 10 ? `0${number}` : number);
 
-  let day = pad(parts[0]);
-  let month = pad(months[parts[1]]);
-  let year = 2000+parts[2]%100;
-
-  return `${year}-${month}-${day}`;
-}
-
-function convertVal(item, index, arr){
-  arr[index]['Payment Amount'] = parseInt(arr[index]['Payment Amount']);
-  arr[index]['Payment Date'] = formatDate(arr[index]['Payment Date']);
-  // arr[index]['Sale Price'] = parseInt(arr[index]['Sale Price']);
-}
-
-function mySort(data) {
-  console.log("Sorting data....")
-  data.forEach(convertVal);
-  data.sort( (a, b) => { return a['Payment Date'] > b['Payment Date'] ? 1 : -1 } );
-  data.sort( (a, b) => { return a['Sale ID'] > b['Sale ID'] ? 1 : -1 } );
-  return data;
-}
-
-function processLedgerData(result){
-  console.log("Ledger Lines: ", result.length);
-  readLedgerReport(result, result.length);
-  // console.log(ledgerEntries);
-  console.log("Completed");
-  // sorted_result = mySort(ledgerEntries);
-  const tableContainer = document.getElementById('ledger-table-container');
-  // console.log(sorted_result);
-  tableContainer.innerHTML = generateTable(ledgerEntries);  
-}
-
-// Get the selected file when input changes
-document.getElementById("myFile").addEventListener("change", (event) => {
-  selectedFile = event.target.files[0];
-  console.log("selected file: ", selectedFile);
-});
-
-// Handle upload button click
-document.getElementById("upload-btn").addEventListener("click", (e) => {
-  console.log("Reading File.");
-  e.preventDefault();
-  let fileReader = new FileReader();
-
-  fileReader.readAsBinaryString(selectedFile); // Read the selected file as binary string
-
-  fileReader.onload = (event) => {  // Process the file data when it's loaded
-    let fileData = event.target.result;
-    let workbook = XLSX.read( // Read the Excel workbook
-      fileData, { type: "binary" }, { dateNF: "dd/mmm/yy" }
-    );
-
-    // Change each sheet in the workbook to json
-    workbook.SheetNames.forEach(async (sheet) => {
-      const result = XLSX.utils.sheet_to_json(workbook.Sheets[sheet], {
-        raw: false,
+    function generateTable(data) {
+      let table = '<table>';
+      table += '<tr>';
+      table += '<th>Sale ID</th><th>Customer Name</th><th>Unit</th>';
+      table += '<th>Payment Amount</th><th>Payment Date</th><th>Comments / Details</th>';
+      table += '</tr>';
+      data.forEach(item => {
+        table += `<tr><td>${item['Sale ID']}</td><td>${item['Customer Name']}</td><td>${item['Unit']}</td>`;
+        table += `<td>${item['Payment Amount']}</td><td>${item['Payment Date']}</td><td>${item['Comments / Details']}</td></tr>`;
       });
-      console.log("Sheet Name: ", sheet);
-      if( sheet == 'Payments123'){
-        sorted_result = mySort(result);
-      	const tableContainer = document.getElementById('payment-table-container');
-        // console.log(sorted_result);
-	  	  tableContainer.innerHTML = generateTable(sorted_result);  
-	    }
-      if( sheet == 'Ledger Vouchers'){
-        processLedgerData(result);
+      table += '</table>';
+      return table;
+    }
+
+    function isFound(item, text) {
+      return Object.values(item).includes(text); //("Ledger:");
+    }
+
+    function getCust(str) {
+      let unit = "";
+      let customer = "";
+      if (str == undefined || str == "") { return [unit, customer]; }
+      for (const [key, value] of Object.entries(projects)) {
+        if (str.includes(key)) {
+          unit = value[0] + str.substring(value[1], value[2]);
+          customer = str.substring(value[3], value[4]);
+        }
       }
+      return [unit, customer];
+    }
+
+    function filterLedgerByUnit(item, index, arr) {
+      // ledgersByUnit;
+      let payDt = item['Payment Date'];
+      if (payDt == undefined) { return; }
+      if (payDt >= minDt && payDt <= maxDt) {
+        let unit = item['Unit'];
+        if (ledgersByUnit[unit] == undefined) { ledgersByUnit[unit] = [] }
+        ledgersByUnit[unit].push(item);
+      }
+    }
+
+    function filterPaymentsByUnit(item, index, arr) {
+      // paymentsByUnit;
+      let payDt = item['Payment Date'];
+      if (payDt == undefined) { return; }
+      if (payDt >= minDt && payDt <= maxDt) {
+        let unit = item['Unit'];
+        if (paymentsByUnit[unit] == undefined) { paymentsByUnit[unit] = [] }
+        paymentsByUnit[unit].push(item);
+      }
+    }
+
+    function readLedgerReport(arr, maxLen) {
+      let unit = "";
+      let cusomer = "";
+      let ledgerIndex = 0;
+      do {
+        let newItem = arr[ledgerIndex];
+        if (newItem instanceof Object) {
+          if (isFound(newItem, "Ledger:")) {
+            newRecHdr = false;
+            [unit, customer] = getCust(newItem['B']);
+          }
+          if (newRecHdr) {
+            let vchType = newItem['D'];
+            let desc = newItem['C'];
+            if (newItem['A'] === undefined || newItem['D'] === undefined) { continue; }
+            if (vchType == 'Journal' && !desc.includes('TDS Receivable')) { continue; }
+            let newRec = { "Payment Date": "", "Sale ID": "", "Payment Amount": 0, "Customer Name": customer };
+            newRec['Payment Date'] = newItem['A']; //formatDate(newItem['A']);
+            newRec['Unit'] = unit;
+            newRec['Comments / Details'] =
+              desc.includes('TDS Receivable') ? 'TDS Receivable ' + arr[ledgerIndex + 1]['C'] : arr[ledgerIndex + 1]['C'];
+            newRec["AltDate"] = findDateInStr(newRec['Comments / Details']);
+            newRec['Cheque'] = chequeNumInStr(newRec['Comments / Details']);
+            if (newItem['G'] != undefined && (vchType == 'Receipt' || vchType == 'Journal')) {
+              newRec['Payment Amount'] = newItem['G'];
+              ledgerEntries.push(newRec);
+            }
+            if (newItem['F'] != undefined && vchType == 'Payment') {
+              newRec['Payment Amount'] = "-" + newItem['F'];
+              ledgerEntries.push(newRec);
+            }
+          }
+          if (isFound(newItem, "Date") && isFound(newItem, "Credit")) { newRecHdr = true; }
+        }
+      } while (++ledgerIndex < maxLen)
+    }
+
+    function formatDate(dateString) {
+      const months = {
+        'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+        'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+      };
+      let parts = dateString.split('-');
+
+      let day = pad(parseInt(parts[0]));
+      let month = pad(months[parts[1]]);
+      let year = 2000 + parseInt(parts[2]) % 100;
+
+      return `${year}-${month}-${day}`;
+    }
+
+    function convertVal(item, index, arr) {
+      if (arr[index]['Payment Amount'] == undefined) {
+        arr[index]['Payment Amount'] = 0;
+      } else {
+        let amt = arr[index]['Payment Amount'];
+        if (typeof amt === 'string') { amt = amt.replace(",", "").replace("₹", ""); }
+        arr[index]['Payment Amount'] = parseInt(amt);
+      }
+
+      if (arr[index]['Payment Date'] == undefined) {
+        arr[index]['Payment Date'] = "";
+      } else {
+        arr[index]['Payment Date'] = formatDate(arr[index]['Payment Date']);
+      }
+    }
+
+    function sortEntries(data) {
+      data.forEach(convertVal);
+      data.sort((a, b) => { return a['Payment Date'] > b['Payment Date'] ? 1 : -1 });
+      data.sort((a, b) => { return a['Unit'] > b['Unit'] ? 1 : -1 });
+      return data;
+    }
+
+    function chequeNumInStr(str) {
+      let res = '';
+      let chqstr = '';
+      let chq = '';
+      if (str == undefined || str == '') { return chq; }
+      res = str.match(/(\Chq no-|Chq no|CHEQUE NO|CHQ NO:|CHQ#|CHEQUE#|DD#|DD no|DD no:|DD no-)\d{3,6}/gi);
+      if (res != null) {
+        chqstr = res[0];
+        res = chqstr.match(/\d{3,6}/gi);
+        chq = res != null ? res[0] : '';
+      }
+      return chq;
+    }
+
+    function findDateInStr(str) {
+      let res = '';
+      let strDt = '';
+      if (str == undefined || str == '') { return strDt; }
+      res = str.match(/\d{1,2}([\/.-])\d{1,2}([\/.-])\d{2,4}/g);
+      if (res != null) { strDt = res[0].replace(/([\/.])/g, '-'); }
+      if (strDt != '') {
+        let arr = strDt.split('-');
+        let year = parseInt(arr[2]) < 100 ? 20 + arr[2] : arr[2];
+        let month = pad(parseInt(arr[1]));
+        let day = pad(parseInt(arr[0]));
+        strDt = `${year}-${month}-${day}`;
+        // return new Date(year, month, day);
+      }
+      if (strDt == '' || strDt == null || !strDt.length) {
+        res = str.match(/\d{1,2}([\/.-])(\Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)([\/.-])\d{2,4}/gi);
+        if (res != null) { strDt = res[0].replace(/([\/.])/g, '-'); strDt = formatDate(strDt); }
+      }
+      return strDt;
+    }
+
+    function checkFileSelect() {
+      if (paymentFile == undefined || paymentFile == "") {
+        alert("Select a payment file to upload.");
+        return 0;
+      }
+      if (ledgerFile == undefined || ledgerFile == "") {
+        alert("Select a ledger report file to upload.");
+        return 0;
+      }
+      return 1;
+    }
+
+    function generateReconRpt() {
+      const reconContainer = document.getElementById('recon-table-container');
+      let reconRpt = '';
+      let units = Object.keys(ledgersByUnit);
+      for (i = 0; i < units.length; i++) {
+        reconRpt += buildUnitReconRpt(units[i]);
+      }
+      // reconRpt = buildUnitReconRpt('E1-103');
+      reconContainer.innerHTML = "<table>" + headerUnitReconRpt() + reconRpt + "</table>";
+    }
+
+    function headerUnitReconRpt() {
+      let table = '';
+      // '<table>';
+      table += '<tr>';
+      table += '<th colspan=4>CRM Payment Record</th><th>&nbsp;&nbsp;</th><th colspan=3>Account Ledger Record</th>';
+      table += '</tr><tr>';
+      table += '<th>Sale ID</th><th>Unit</th><th>Payment Date</th><th>Payment Amount</th>';
+      table += '<th>&nbsp;&nbsp;</th>'
+      table += '<th>Unit</th><th>Payment Date</th><th>Payment Amount</th>';
+      table += '</tr>';
+      return table;
+    }
+
+    function rowUnitReconRpt(payRec, matRec, matNum, unit) {
+      let html = '';
+      html += `<tr>`;
+      if (payRec == undefined || payRec == null) {
+        html += `<td colspan=4><strong><small>No Matching CRM Payment</small></strong></td>`;
+      }
+      else {
+        html += `<td>${payRec['Sale ID']}</td><td>${unit}</td><td>${payRec['Payment Date']}</td><td>${payRec['Payment Amount']}</td>`;
+      }
+      html += (matNum == undefined || matNum == null) ? `<td style="color: red;">NOMATCH</td>` : `<td>&nbsp;${matNum}&nbsp;</td>`;
+      if (matRec == undefined || matRec == null) {
+        html += `<td colspan=3><strong><small>No Matching Ledger Record</small></strong></td></tr>`;
+      }
+      else {
+        html += `<td>${unit}</td><td>${matRec['Payment Date']}</td><td>${matRec['Payment Amount']}</td></tr>`;
+        html += `<tr><td colspan=8><small><i><strong>Ledger Remark: </strong>${matRec['Comments / Details']}</i></small></td></tr>`;
+      }
+      if (payRec != undefined && payRec != null) {
+        html += `<tr><td colspan=8><small><i><strong>CRM Remark: </strong>${payRec['Comments / Details']}</i></small></td></tr>`;
+      }
+      html += '<tr><td colspan=8><hr/></td></tr>';
+      return html;
+    }
+
+    function buildUnitReconRpt(unit) {
+      let ledRecs = ledgersByUnit[unit];
+      let payRecs = paymentsByUnit[unit];
+      let ledgerCust = ledRecs == undefined ? '' : ledRecs[0]['Customer Name'];
+      let crmCust = payRecs == undefined ? '' : payRecs[0]['Customer Name'];
+      let table = '<tr>';
+      table += `<td colspan=4>CRM Customer Name: <u><strong>${crmCust}</strong></u></td>`;
+      table += `<td>&nbsp;</td>`;
+      table += `<td colspan=3>Ledger Customer Name: <u><strong>${ledgerCust}</strong></u></td></tr>`;
+      table += `<tr><td colspan=8><hr/></td></tr><tr>`;
+      if (payRecs != undefined) {
+        payRecs.forEach(payRec => {
+          let matNum = payRec['Match'];
+          if (matNum == undefined || matNum == null) { table += rowUnitReconRpt(payRec, null, null, unit); return; }
+          let matRec = ledRecs.find(o => o['Match'] === matNum);
+          if (matRec == undefined) { return; }
+          table += rowUnitReconRpt(payRec, matRec, matNum, unit);
+        })
+      };
+      if (ledRecs != undefined) {
+        ledRecs.forEach(ledRec => {
+          let matNum = ledRec['Match'];
+          if (matNum == undefined || matNum == null) { table += rowUnitReconRpt(null, ledRec, null, unit); return; }
+        })
+      };
+      table += `<tr><td colspan=8>&nbsp;</td></tr><tr>`;
+      return table;
+    }
+
+    function matchRecords(pRec, ledger) {
+      let amt = ledger['Payment Amount'];
+      let dt = ledger['Payment Date'];
+      let matchCd = '';
+      if (pRec['Payment Amount'] == amt && pRec['Payment Date'] == dt) {
+        matchCd = 'EM'; // Exact Match
+      } else if (pRec['Payment Amount'] == amt && pRec['Cheque'] != '' && pRec['Cheque'] == ledger['Cheque']) {
+        matchCd = 'C#'; // Cheque # Match
+      } else if (pRec['Payment Amount'] == amt && pRec['Payment Date'] == ledger['AltDate']) {
+        matchCd = 'DM'; // Alternate Date Match
+      } else if (Math.abs(amt - pRec['Payment Amount']) < 100 && (pRec['Payment Date'] == ledger['AltDate'] || pRec['Payment Date'] == dt)) {
+        matchCd = 'AD'; // Amount Difference Small
+      } else {
+        var d1 = new Date(pRec['Payment Date']);
+        var d2 = new Date(ledger['Payment Date']);
+        var d3 = new Date(ledger['AltDate']);
+        var daydiff1 = Math.abs((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
+        var daydiff2 = Math.abs((d3.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
+        if (pRec['Payment Amount'] == amt && daydiff1 < 10) {
+          matchCd = 'DD'; // Day Difference Small
+        } else if (pRec['Payment Amount'] == amt && daydiff2 < 10) {
+          matchCd = 'DA'; // Day Difference Small
+        } else if (Math.abs(amt - pRec['Payment Amount']) < 100 && (daydiff1 < 10 || daydiff2 < 10)) {
+          matchCd = 'PD'; // Amount Diff and Day Diff Small
+        }
+      }
+      return matchCd;
+    }
+
+    function proceedWithRecon() {
+      let mcount = 1;
+      if (!(payDataReady && ledgerDataReady)) { console.log("Data not ready to recon"); return; }
+      console.log("Data is ready to recon");
+      if (!reconDone) {
+        Object.entries(ledgersByUnit).map(entry => {
+          let unit = entry[0];
+          let unitledgerRecs = entry[1];
+          if (!paymentsByUnit.hasOwnProperty(unit)) { console.log("No payments found for", unit); return; }
+          let payRecs = paymentsByUnit[unit];
+          unitledgerRecs.forEach((ledger, index, arr) => {
+            let matched = false;
+            let amt = ledger['Payment Amount'];
+            let dt = ledger['Payment Date'];
+            payRecs.forEach((pRec, pInd, pArr) => {
+              let matchCd = '';
+              if (matched || pRec.hasOwnProperty('Match')) { return; }
+              matchCd = matchRecords(pRec, ledger);
+              if (matchCd != '') {
+                ledgersByUnit[unit][index]['Match'] = matchCd + mcount;
+                paymentsByUnit[unit][pInd]['Match'] = matchCd + mcount;
+                mcount++; matched = true;
+              }
+            });
+          });
+        });
+        console.log("Ledgers :", ledgersByUnit);
+        console.log("Payments :", paymentsByUnit);
+        reconDone = true;
+        console.log("Recon Done");
+      }
+      generateReconRpt();
+    }
+
+    function processPaymentFile() {
+      let fileReader = new FileReader();
+      fileReader.readAsBinaryString(paymentFile); // Read the selected file as binary string
+
+      fileReader.onload = (event) => {  // Process the file data when it's loaded
+        let fileData = event.target.result;
+        let workbook = XLSX.read( // Read the Excel workbook
+          fileData, { type: "binary" }, { dateNF: "dd/mmm/yy" }
+        );
+
+        workbook.SheetNames.forEach(async (sheet) => {  // Change each sheet in the workbook to json
+          let hdr = { raw: false }
+          const result = XLSX.utils.sheet_to_json(workbook.Sheets[sheet], hdr);
+          console.log("Sheet Name: ", sheet);
+          if (sheet == 'Payments') {
+            payments = [...result];
+            for (i = 0; i < payments.length; i++) {
+              payments[i]['Cheque'] = chequeNumInStr(payments[i]['Comments / Details']);
+            }
+            payments = sortEntries(payments);
+          }
+          paymentsByUnit = {};
+          payments.forEach(filterPaymentsByUnit);
+          payDataReady = true;
+          proceedWithRecon();
+        });
+      };
+      // fileReader.close();
+    }
+
+    function processLedgerFile() {
+      let fileReader = new FileReader();
+      fileReader.readAsBinaryString(ledgerFile); // Read the selected file as binary string
+
+      fileReader.onload = (event) => {  // Process the file data when it's loaded
+        let fileData = event.target.result;
+        let workbook = XLSX.read( // Read the Excel workbook
+          fileData, { type: "binary" }, { dateNF: "dd/mmm/yy" }
+        );
+
+        workbook.SheetNames.forEach(async (sheet) => {  // Change each sheet in the workbook to json
+          let hdr = { raw: false, origin: 'A3', skipHeader: true };
+          const result = XLSX.utils.sheet_to_json(workbook.Sheets[sheet], hdr);
+          console.log("Ledger File Sheet Name: ", sheet);
+          if (sheet == 'Ledger Vouchers') {
+            console.log("Ledger Lines: ", result.length);
+            readLedgerReport(result, result.length);
+            console.log("Completed");
+            sorted_result = sortEntries(ledgerEntries);
+            const tableContainer = document.getElementById('ledger-table-container');
+            ledgersByUnit = {};
+            ledgerEntries.forEach(filterLedgerByUnit);
+            ledgerDataReady = true;
+            proceedWithRecon();
+          }
+        });
+      }
+      // fileReader.close();
+    }
+  </script>
+
+  <script>
+    // Get the selected file when input changes
+    document.getElementById("paymentFile").addEventListener("change", (event) => {
+      paymentFile = event.target.files[0];
+      console.log("selected payment file: ", paymentFile);
     });
-  };
-});
-</script>
+
+    document.getElementById("ledgerFile").addEventListener("change", (event) => {
+      ledgerFile = event.target.files[0];
+      console.log("selected ledger report file: ", ledgerFile);
+    });
+
+    // Handle upload button click
+    document.getElementById("upload-btn").addEventListener("click", (e) => {
+      if (!checkFileSelect()) { return; }
+      console.log("Reading File.");
+      e.preventDefault();
+      fyYear = document.querySelector('#fyYear').value;
+      minDt = reconDate[fyYear][0];
+      maxDt = reconDate[fyYear][1];
+      payDataReady = false;
+      ledgerDataReady = false;
+      reconDone = false;
+      ledgerEntries = [];
+      payments = [];
+      console.log(fyYear, minDt, maxDt);
+      if (minDt == undefined || maxDt == undefined) {
+        alert("Selected FY incorrect."); return;
+      }
+      processPaymentFile();
+      processLedgerFile();
+    });
+  </script>
 
 </body>
-
 
 </html>
