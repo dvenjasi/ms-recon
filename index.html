@@ -8,6 +8,12 @@
       width: 100%;
     }
 
+    .smalltable {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 1em;
+    }
+
     td,
     th {
       text-align: left;
@@ -54,6 +60,15 @@
     </button>
   </form>
 
+  <div id="ledgerfile-error-container">
+  </div>
+
+  <div id="payfile-error-container">
+  </div>
+
+  <div id="recon-summary-container">
+  </div>
+
   <div id="recon-table-container">
   </div>
 
@@ -73,6 +88,31 @@ https://www.jsdelivr.com/package/npm/xlsx
   </script>
 
   <script>
+    let ledgerfileErrorText = `Uploaded ledger file is not in proper format.
+  <ol>
+    <li>File should be a proper MS Excel Ledger Report provided by the Account's team.</li>
+    <li>The report should be in the sheet named 'Ledger Vouchers' in the file</li>
+    <li>Ledger Report sheet should have the following Column Names (in the first row of the excel sheet) <br/>
+      A, B, C, D, E, F, G
+    </li>
+    <li>All the dates should be in dd-MMM-YY format</li>
+  </ol>`;
+    let paymentfileErrorText = `Uploaded payment file is not in proper format.
+    <ol>
+      <li>File should be a proper MS Excel file</li>
+      <li>All the payment details should be in the sheet named 'Payments' in the file</li>
+      <li>Payments sheet should have the following Column Names (in the first row of the excel sheet)
+        <ul>
+          <li>Unit</li><li>Customer Name</li><li>Payment Amount</li><li>Payment Date</li><li>Comments / Details</li><li>Sales ID</li>
+        </ul>
+      </li>
+      <li>Please note the spaces in the column names</li>
+      <li>All the dates should be in dd-MMM-YY format</li>
+      <li>Delete all empty rows at the end of the sheet</li>
+    </ol>`;
+  </script>
+
+  <script>
     let reconDate = {
       "FY2021-22": ["2021-04-01", "2022-03-31"],
       "FY2022-23": ["2022-04-01", "2023-03-31"],
@@ -84,6 +124,16 @@ https://www.jsdelivr.com/package/npm/xlsx
       "Engrace-1": ["E1-", 0, 3, 14, 40],
       "Engrace 01": ["E1-", 0, 3, 17, 40]
     };
+    let matchCodeDesc = {
+      "NOMATCH": "No Match Found",
+      "EM": "Exact Match - Payment Date and Payment Amount match",
+      "C#": "Cheque Number along with Payment Amount match",
+      "DM": "Payment Amount and Alternate Payment Date (found in ledger comments) match",
+      "AD": "Payment Amount with max Rs100 diff and Payment Date(s) match",
+      "DD": "Payment Amount matches with max 10 days diff in Payment Date",
+      "DA": "Payment Amount matches with max 10 days diff in Alternate Payment Date",
+      "PD": "Payment Amount with max Rs100 diff and Payment Date(s) max 10 days diff"
+    }
   </script>
 
   <script>
@@ -100,20 +150,34 @@ https://www.jsdelivr.com/package/npm/xlsx
     let payDataReady = false;
     let ledgerDataReady = false;
     let reconDone = false;
+    let fileError = false;
 
     const pad = (number) => (number < 10 ? `0${number}` : number);
 
-    function generateTable(data) {
-      let table = '<table>';
+    function generateTable(data, type) {
+      let ty = type.includes("Ledger");
+      console.log("genrating UNMATCHED table for ", type, ty);
+      let table = `<h2>Details of UNMATCHED ${type} records</h2><small><table class="smalltable">`;
       table += '<tr>';
-      table += '<th>Sale ID</th><th>Customer Name</th><th>Unit</th>';
-      table += '<th>Payment Amount</th><th>Payment Date</th><th>Comments / Details</th>';
+      table += ty ? '' : '<th width=10%>Sale ID</th>';
+      table += '<th width=5%>Unit</th><th width=15%>Customer Name</th>';
+      table += '<th width=10%>Payment Amount</th><th width=10%>Payment Date</th><th width=60%>Comments / Details</th>';
       table += '</tr>';
-      data.forEach(item => {
-        table += `<tr><td>${item['Sale ID']}</td><td>${item['Customer Name']}</td><td>${item['Unit']}</td>`;
-        table += `<td>${item['Payment Amount']}</td><td>${item['Payment Date']}</td><td>${item['Comments / Details']}</td></tr>`;
+      Object.entries(data).map(entry => {
+        let unit = entry[0];
+        let unitRecs = entry[1];
+        unitRecs.forEach((item, index, arr) => {
+          let matchCd = item['Match'];
+          let paydt = getdispDate(item['Payment Date']);
+          if (matchCd != null && matchCd != undefined) { return; }
+          table += '<tr>';
+          table += ty ? '' : `<td>${item['Sale ID']}</td>`;
+          table += `<td>${item['Unit']}</td><td>${item['Customer Name']}</td>`;
+          table += `<td>${item['Payment Amount']}</td><td>${paydt}</td><td>${item['Comments / Details']}</td>`;
+          table += '</tr>';
+        });
       });
-      table += '</table>';
+      table += '</table></small>';
       return table;
     }
 
@@ -194,7 +258,7 @@ https://www.jsdelivr.com/package/npm/xlsx
     }
 
     function ExcelDateToJSDate(date) {
-      return new Date(Math.round((date - 25569)*86400*1000));
+      return new Date(Math.round((date - 25569) * 86400 * 1000));
     }
 
     function formatDate(dateString) {
@@ -202,13 +266,13 @@ https://www.jsdelivr.com/package/npm/xlsx
         'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
         'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
       };
-      if (typeof dateString === 'number'){
-        let dt = new Date(Math.round((dateString - 25569)*86400*1000));
+      if (typeof dateString === 'number') {
+        let dt = new Date(Math.round((dateString - 25569) * 86400 * 1000));
         let day = pad(dt.getDate());
-        let month = pad(dt.getMonth()+1);
+        let month = pad(dt.getMonth() + 1);
         let year = dt.getFullYear();
         return `${year}-${month}-${day}`;
-      } else if(typeof dateString === 'string'){
+      } else if (typeof dateString === 'string') {
         let parts = dateString.split('-');
         let day = pad(parseInt(parts[0]));
         let month = pad(months[parts[1]]);
@@ -226,7 +290,6 @@ https://www.jsdelivr.com/package/npm/xlsx
         if (typeof amt === 'string') { amt = amt.replace(",", "").replace("₹", ""); }
         arr[index]['Payment Amount'] = parseInt(amt);
       }
-
       if (arr[index]['Payment Date'] == undefined) {
         arr[index]['Payment Date'] = "";
       } else {
@@ -291,12 +354,35 @@ https://www.jsdelivr.com/package/npm/xlsx
     function generateReconRpt() {
       const reconContainer = document.getElementById('recon-table-container');
       let reconRpt = '';
+      let reconsummary = { "NOMATCH": { 'Ledger': [0, 0], 'crm': [0, 0] } };
       let units = Object.keys(ledgersByUnit);
       for (i = 0; i < units.length; i++) {
-        reconRpt += buildUnitReconRpt(units[i]);
+        reconRpt += buildUnitReconRpt(units[i], reconsummary);
       }
       // reconRpt = buildUnitReconRpt('E1-103');
-      reconContainer.innerHTML = "<table>" + headerUnitReconRpt() + reconRpt + "</table>";
+      reconContainer.innerHTML = "<h2>Recon Details:</h2><table>" + headerUnitReconRpt() + reconRpt + "</table>";
+      console.log(reconsummary);
+      buildReconSummaryRpt(reconsummary);
+    }
+
+    function buildReconSummaryRpt(stats) {
+      let table = '<h2>Recon Summary:</h2>';
+      table += '<table><tr><th width=60%>Recon Method/Desc</th><th width=20%>Ledger</th><th width=20%>CRM</th></tr>';
+      let matchCodes = Object.keys(stats);
+      for (i = 0; i < matchCodes.length; i++) {
+        let matchCd = matchCodes[i];
+        let desc = matchCodeDesc[matchCd];
+        let lamt = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(stats[matchCd]['Ledger'][1]);
+        let camt = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(stats[matchCd]['crm'][1]);
+        table += `<tr><td>${matchCd} - ${desc}</td>`;
+        // table += `<td>${stats[matchCd]['Ledger'][0]} (₹${stats[matchCd]['Ledger'][1]})</td>`;
+        // table += `<td>${stats[matchCd]['crm'][0]} (₹${stats[matchCd]['crm'][1]})</td></tr>`;
+        table += `<td>${stats[matchCd]['Ledger'][0]} (${lamt})</td>`;
+        table += `<td>${stats[matchCd]['crm'][0]} (${camt})</td></tr>`;
+      }
+      table += `</table>`;
+      const reconSummaryContainer = document.getElementById('recon-summary-container');
+      reconSummaryContainer.innerHTML = table + '<br/><hr/>';
     }
 
     function headerUnitReconRpt() {
@@ -312,6 +398,16 @@ https://www.jsdelivr.com/package/npm/xlsx
       return table;
     }
 
+    function getdispDate(dt) { // dt should be in yyyy-mm-dd format
+      const months = {
+        '01': 'Jan', '02': 'Feb', '03': 'Mar', '04': 'Apr', '05': 'May', '06': 'Jun',
+        '07': 'Jul', '08': 'Aug', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec'
+      };
+      let ndt = "" + dt;
+      let arr = ndt.split('-');
+      return arr[2] + '-' + months[arr[1]] + '-' + arr[0];
+    }
+
     function rowUnitReconRpt(payRec, matRec, matNum, unit) {
       let html = '';
       html += `<tr>`;
@@ -319,14 +415,16 @@ https://www.jsdelivr.com/package/npm/xlsx
         html += `<td colspan=4><strong><small>No Matching CRM Payment</small></strong></td>`;
       }
       else {
-        html += `<td>${payRec['Sale ID']}</td><td>${unit}</td><td>${payRec['Payment Date']}</td><td>${payRec['Payment Amount']}</td>`;
+        let payDt = getdispDate(payRec['Payment Date']);
+        html += `<td>${payRec['Sale ID']}</td><td>${unit}</td><td>${payDt}</td><td>${payRec['Payment Amount']}</td>`;
       }
       html += (matNum == undefined || matNum == null) ? `<td style="color: red;">NOMATCH</td>` : `<td>&nbsp;${matNum}&nbsp;</td>`;
       if (matRec == undefined || matRec == null) {
         html += `<td colspan=3><strong><small>No Matching Ledger Record</small></strong></td></tr>`;
       }
       else {
-        html += `<td>${unit}</td><td>${matRec['Payment Date']}</td><td>${matRec['Payment Amount']}</td></tr>`;
+        let matDt = getdispDate(matRec['Payment Date']);
+        html += `<td>${unit}</td><td>${matDt}</td><td>${matRec['Payment Amount']}</td></tr>`;
         html += `<tr><td colspan=8><small><i><strong>Ledger Remark: </strong>${matRec['Comments / Details']}</i></small></td></tr>`;
       }
       if (payRec != undefined && payRec != null) {
@@ -336,29 +434,41 @@ https://www.jsdelivr.com/package/npm/xlsx
       return html;
     }
 
-    function buildUnitReconRpt(unit) {
+    function buildUnitReconRpt(unit, stats) {
       let ledRecs = ledgersByUnit[unit];
       let payRecs = paymentsByUnit[unit];
       let ledgerCust = ledRecs == undefined ? '' : ledRecs[0]['Customer Name'];
       let crmCust = payRecs == undefined ? '' : payRecs[0]['Customer Name'];
       let table = '<tr>';
-      table += `<td colspan=4>CRM Customer Name: <u><strong>${crmCust}</strong></u></td>`;
-      table += `<td>&nbsp;</td>`;
+      table += `<td colspan=4>CRM Customer Name: <u><strong>${crmCust}</strong></u></td><td>&nbsp;</td>`;
       table += `<td colspan=3>Ledger Customer Name: <u><strong>${ledgerCust}</strong></u></td></tr>`;
       table += `<tr><td colspan=8><hr/></td></tr><tr>`;
       if (payRecs != undefined) {
         payRecs.forEach(payRec => {
           let matNum = payRec['Match'];
-          if (matNum == undefined || matNum == null) { table += rowUnitReconRpt(payRec, null, null, unit); return; }
+          let matchCd = (matNum == undefined || matNum == null) ? 'NOMATCH' : matNum.substring(0, 2);
+          if (stats[matchCd] == undefined) { stats[matchCd] = {}; stats[matchCd]['Ledger'] = [0, 0]; stats[matchCd]['crm'] = [0, 0]; }
+          if (matNum == undefined || matNum == null) {
+            table += rowUnitReconRpt(payRec, null, null, unit);
+            stats[matchCd]['crm'][0] += 1; stats[matchCd]['crm'][1] += Math.abs(payRec['Payment Amount']);
+            return;
+          }
           let matRec = ledRecs.find(o => o['Match'] === matNum);
           if (matRec == undefined) { return; }
           table += rowUnitReconRpt(payRec, matRec, matNum, unit);
+          stats[matchCd]['Ledger'][0] += 1; stats[matchCd]['Ledger'][1] += Math.abs(matRec['Payment Amount']);
+          stats[matchCd]['crm'][0] += 1; stats[matchCd]['crm'][1] += Math.abs(payRec['Payment Amount']);
         })
       };
       if (ledRecs != undefined) {
         ledRecs.forEach(ledRec => {
           let matNum = ledRec['Match'];
-          if (matNum == undefined || matNum == null) { table += rowUnitReconRpt(null, ledRec, null, unit); return; }
+          let matchCd = (matNum == undefined || matNum == null) ? 'NOMATCH' : matNum.substring(0, 2);
+          if (matNum == undefined || matNum == null) {
+            table += rowUnitReconRpt(null, ledRec, null, unit);
+            stats[matchCd]['Ledger'][0] += 1; stats[matchCd]['Ledger'][1] += Math.abs(ledRec['Payment Amount']);
+            return;
+          }
         })
       };
       table += `<tr><td colspan=8>&nbsp;</td></tr><tr>`;
@@ -398,6 +508,7 @@ https://www.jsdelivr.com/package/npm/xlsx
       let mcount = 1;
       if (!(payDataReady && ledgerDataReady)) { console.log("Data not ready to recon"); return; }
       console.log("Data is ready to recon");
+      if (fileError) { return; }
       if (!reconDone) {
         Object.entries(ledgersByUnit).map(entry => {
           let unit = entry[0];
@@ -424,8 +535,53 @@ https://www.jsdelivr.com/package/npm/xlsx
         console.log("Payments :", paymentsByUnit);
         reconDone = true;
         console.log("Recon Done");
+        const pContainer = document.getElementById('payment-table-container');
+        pContainer.innerHTML = generateTable(paymentsByUnit, "CRM Payments");
+        const ltableContainer = document.getElementById('ledger-table-container');
+        ltableContainer.innerHTML = generateTable(ledgersByUnit, "Finance Ledger");
       }
       generateReconRpt();
+    }
+    function ledgerFileError(rawdata) {
+      const ledgerCols = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+      let colsSet = new Set();
+      rawdata.map((element) => Object.keys(element).map(e => colsSet.add(e)))
+      let cols = Array.from(colsSet);
+      if (cols == null || cols == undefined) { return true; }
+      console.log(cols);
+      for (let i = 0; i < ledgerCols.length; i++) {
+        if (!cols.includes(ledgerCols[i])) { return true; }
+      }
+      return false;
+    }
+
+    function paymentFileError(rawdata) {
+      const payCols = ['Sale ID', 'Customer Name', 'Unit', 'Sale Status', 'Payment Amount', 'Payment Date', 'Comments / Details'];
+      let rec = rawdata[0];
+      if (rec == null || rec == undefined) { return true; }
+      let cols = Object.keys(rec);
+      if (cols == null || cols == undefined) { return true; }
+      console.log(cols);
+      for (let i = 0; i < payCols.length; i++) {
+        if (!cols.includes(payCols[i])) { return true; }
+      }
+      return false;
+    }
+
+    function exitWithLedgerError() {
+      fileError = true; 
+      const ele = document.getElementById("ledgerfile-error-container");
+      ele.innerHTML = ledgerfileErrorText;
+      ele.style.visibility = 'visible';
+      console.log("Ledger file format error.");
+    }
+
+    function exitWithPayError() {
+      fileError = true;
+      const ele = document.getElementById("payfile-error-container");
+      ele.innerHTML = paymentfileErrorText;
+      ele.style.visibility = 'visible';
+      console.log("Payment file format error.");
     }
 
     function processPaymentFile() {
@@ -437,23 +593,28 @@ https://www.jsdelivr.com/package/npm/xlsx
         let workbook = XLSX.read( // Read the Excel workbook
           fileData, { type: "binary" }, { dateNF: "dd/mmm/yy" }
         );
-
+        if (!workbook.SheetNames.includes('Payments')) { exitWithPayError(); return; }
         workbook.SheetNames.forEach(async (sheet) => {  // Change each sheet in the workbook to json
           let hdr = { raw: true, rawNumbers: true }
           const result = XLSX.utils.sheet_to_json(workbook.Sheets[sheet], hdr);
           console.log("Sheet Name: ", sheet);
           if (sheet == 'Payments') {
+            if (paymentFileError(result)) { exitWithPayError(); return; }
             payments = [...result];
-            console.log("Payment Raw records:", result);
+            // console.log("Payment Raw records:", result);
             for (i = 0; i < payments.length; i++) {
               payments[i]['Cheque'] = chequeNumInStr(payments[i]['Comments / Details']);
             }
             payments = sortEntries(payments);
+            paymentsByUnit = {};
+            payments.forEach(filterPaymentsByUnit);
+            payDataReady = true;
+            if (!fileError) {
+              proceedWithRecon();
+              // const tableContainer = document.getElementById('payment-table-container');
+              // tableContainer.innerHTML = generateTable(paymentsByUnit, "CRM Payments");
+            }
           }
-          paymentsByUnit = {};
-          payments.forEach(filterPaymentsByUnit);
-          payDataReady = true;
-          proceedWithRecon();
         });
       };
       // fileReader.close();
@@ -468,21 +629,25 @@ https://www.jsdelivr.com/package/npm/xlsx
         let workbook = XLSX.read( // Read the Excel workbook
           fileData, { type: "binary" }, { dateNF: "dd/mmm/yy" }
         );
-
+        if (!workbook.SheetNames.includes('Ledger Vouchers')) { exitWithLedgerError(); return; }
         workbook.SheetNames.forEach(async (sheet) => {  // Change each sheet in the workbook to json
           let hdr = { raw: false, origin: 'A3', skipHeader: true };
           const result = XLSX.utils.sheet_to_json(workbook.Sheets[sheet], hdr);
           console.log("Ledger File Sheet Name: ", sheet);
           if (sheet == 'Ledger Vouchers') {
+            if (ledgerFileError(result)) { exitWithLedgerError(); return; }
             console.log("Ledger Lines: ", result.length);
             readLedgerReport(result, result.length);
             console.log("Completed");
             sorted_result = sortEntries(ledgerEntries);
-            const tableContainer = document.getElementById('ledger-table-container');
             ledgersByUnit = {};
             ledgerEntries.forEach(filterLedgerByUnit);
             ledgerDataReady = true;
-            proceedWithRecon();
+            if (!fileError) {
+              proceedWithRecon();
+              // const tableContainer = document.getElementById('ledger-table-container');
+              // tableContainer.innerHTML = generateTable(ledgersByUnit, "Finance Ledger");
+            }
           }
         });
       }
