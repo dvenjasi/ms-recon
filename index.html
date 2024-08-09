@@ -133,7 +133,8 @@ https://www.jsdelivr.com/package/npm/xlsx
       "AD": "Payment Amount with max Rs100 diff and Payment Date(s) match",
       "DD": "Payment Amount matches with max 10 days diff in Payment Date",
       "DA": "Payment Amount matches with max 10 days diff in Alternate Payment Date",
-      "PD": "Payment Amount with max Rs100 diff and Payment Date(s) max 10 days diff"
+      "PD": "Payment Amount with max Rs100 diff and Payment Date(s) max 10 days diff",
+      "PY": "Exact Match with previous year record - Payment Date and Payment Amount match"
     }
   </script>
 
@@ -152,12 +153,13 @@ https://www.jsdelivr.com/package/npm/xlsx
     let ledgerDataReady = false;
     let reconDone = false;
     let fileError = false;
+    let mcount = 0;
 
     const pad = (number) => (number < 10 ? `0${number}` : number);
 
     function generateTable(data, type) {
       let ty = type.includes("Ledger");
-      console.log("genrating UNMATCHED table for ", type, ty);
+      console.log("Generating UNMATCHED table for ", type, ty);
       let table = `<h2>Details of UNMATCHED ${type} records</h2><small><table class="smalltable">`;
       table += '<tr>';
       table += ty ? '' : '<th width=10%>Sale ID</th>';
@@ -300,6 +302,7 @@ https://www.jsdelivr.com/package/npm/xlsx
 
     function sortEntries(data) {
       data.forEach(convertVal);
+      // data.sort((a, b) => { return a['Payment Amount'] > b['Payment Amount'] ? 1 : -1 });
       data.sort((a, b) => { return a['Payment Date'] > b['Payment Date'] ? 1 : -1 });
       data.sort((a, b) => { return a['Unit'] > b['Unit'] ? 1 : -1 });
       return data;
@@ -362,13 +365,13 @@ https://www.jsdelivr.com/package/npm/xlsx
       }
       // reconRpt = buildUnitReconRpt('E1-103');
       reconContainer.innerHTML = "<h2>Recon Details:</h2><table>" + headerUnitReconRpt() + reconRpt + "</table>";
-      console.log(reconsummary);
+      console.log("Recon Summary", reconsummary);
       buildReconSummaryRpt(reconsummary);
     }
 
     function buildReconSummaryRpt(stats) {
       let table = '<h2>Recon Summary:</h2>';
-      table += '<table><tr><th width=60%>Recon Method/Desc</th><th width=20%>Ledger</th><th width=20%>CRM</th></tr>';
+      table += '<table><tr><th width=60%>Recon Method/Description</th><th width=20%>Ledger</th><th width=20%>CRM</th></tr>';
       let matchCodes = Object.keys(stats);
       for (i = 0; i < matchCodes.length; i++) {
         let matchCd = matchCodes[i];
@@ -476,12 +479,15 @@ https://www.jsdelivr.com/package/npm/xlsx
       return table;
     }
 
-    function matchRecords(pRec, ledger) {
+    function matchRecords(pRec, ledger, EMOnly) {
       let amt = ledger['Payment Amount'];
       let dt = ledger['Payment Date'];
+      let altdt = ledger['AltDate'];
       let matchCd = '';
       if (pRec['Payment Amount'] == amt && pRec['Payment Date'] == dt) {
         matchCd = 'EM'; // Exact Match
+      } else if (EMOnly){
+        return matchCd;
       } else if (pRec['Payment Amount'] == amt && pRec['Cheque'] != '' && pRec['Cheque'] == ledger['Cheque']) {
         matchCd = 'C#'; // Cheque # Match
       } else if (pRec['Payment Amount'] == amt && pRec['Payment Date'] == ledger['AltDate']) {
@@ -505,8 +511,49 @@ https://www.jsdelivr.com/package/npm/xlsx
       return matchCd;
     }
 
+    function reconPreviousYearPay(){
+      Object.entries(ledgersByUnit).map(entry => {
+        let unit = entry[0];
+        let unitledgerRecs = entry[1];
+        unitledgerRecs.forEach((ledger, index, arr) => {
+          if (ledger['Match'] != undefined || ledger['AltDate' == undefined]){ return; }
+          payments.forEach((rec)=>{
+            if(rec['Match'] != undefined && rec['Match'] != '') { return; }
+            if(rec['Unit'] != unit) { return; }
+            if(rec['Payment Amount'] != ledger['Payment Amount']) { return; }
+            if(rec['Payment Date'] != ledger['AltDate']) { return; }
+            rec['Match'] = "PY(#" + mcount + ")";
+            ledger['Match'] = "PY(#" + mcount + ")";
+            if (paymentsByUnit[unit] == undefined) { paymentsByUnit[unit] = []}
+            paymentsByUnit[unit].push(rec);
+            mcount++;
+            // console.log("Ledger Rec match with Payment rec", rec);
+          });
+        });
+      });
+    }
+
+    function findMatchRec(unitledgerRecs, payRecs, EMOnly){
+      unitledgerRecs.forEach((ledger, index, arr) => {
+        let unit = ledger['Unit'];
+        let matched = false;
+        let amt = ledger['Payment Amount'];
+        let dt = ledger['Payment Date'];
+        payRecs.forEach((pRec, pInd, pArr) => {
+          let matchCd = '';
+          if (matched || pRec.hasOwnProperty('Match')) { return; }
+          matchCd = matchRecords(pRec, ledger, EMOnly);
+          if (matchCd != '') {
+            ledgersByUnit[unit][index]['Match'] = matchCd + "(#" + mcount + ")";
+            paymentsByUnit[unit][pInd]['Match'] = matchCd + "(#" + mcount + ")";
+            mcount++; matched = true;
+          }
+        });
+      });
+    }
+
     function proceedWithRecon() {
-      let mcount = 1;
+      mcount = 1;
       if (!(payDataReady && ledgerDataReady)) { console.log("Data not ready to recon"); return; }
       console.log("Data is ready to recon");
       if (fileError) { return; }
@@ -514,24 +561,12 @@ https://www.jsdelivr.com/package/npm/xlsx
         Object.entries(ledgersByUnit).map(entry => {
           let unit = entry[0];
           let unitledgerRecs = entry[1];
-          if (!paymentsByUnit.hasOwnProperty(unit)) { console.log("No payments found for", unit); return; }
+          if (!paymentsByUnit.hasOwnProperty(unit)) { console.log("No CRM Payments found for", unit); return; }
           let payRecs = paymentsByUnit[unit];
-          unitledgerRecs.forEach((ledger, index, arr) => {
-            let matched = false;
-            let amt = ledger['Payment Amount'];
-            let dt = ledger['Payment Date'];
-            payRecs.forEach((pRec, pInd, pArr) => {
-              let matchCd = '';
-              if (matched || pRec.hasOwnProperty('Match')) { return; }
-              matchCd = matchRecords(pRec, ledger);
-              if (matchCd != '') {
-                ledgersByUnit[unit][index]['Match'] = matchCd + "(#" + mcount + ")";
-                paymentsByUnit[unit][pInd]['Match'] = matchCd + "(#" + mcount + ")";
-                mcount++; matched = true;
-              }
-            });
-          });
+          findMatchRec(unitledgerRecs, payRecs, true);
+          findMatchRec(unitledgerRecs, payRecs, false);
         });
+        reconPreviousYearPay();
         console.log("Ledgers :", ledgersByUnit);
         console.log("Payments :", paymentsByUnit);
         reconDone = true;
@@ -543,13 +578,14 @@ https://www.jsdelivr.com/package/npm/xlsx
       }
       generateReconRpt();
     }
+
     function ledgerFileError(rawdata) {
       const ledgerCols = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
       let colsSet = new Set();
       rawdata.map((element) => Object.keys(element).map(e => colsSet.add(e)))
       let cols = Array.from(colsSet);
       if (cols == null || cols == undefined) { return true; }
-      console.log(cols);
+      console.log("Ledger Columns", cols);
       for (let i = 0; i < ledgerCols.length; i++) {
         if (!cols.includes(ledgerCols[i])) { return true; }
       }
@@ -562,7 +598,7 @@ https://www.jsdelivr.com/package/npm/xlsx
       if (rec == null || rec == undefined) { return true; }
       let cols = Object.keys(rec);
       if (cols == null || cols == undefined) { return true; }
-      console.log(cols);
+      console.log("Payment Columns", cols);
       for (let i = 0; i < payCols.length; i++) {
         if (!cols.includes(payCols[i])) { return true; }
       }
@@ -598,11 +634,10 @@ https://www.jsdelivr.com/package/npm/xlsx
         workbook.SheetNames.forEach(async (sheet) => {  // Change each sheet in the workbook to json
           let hdr = { raw: true, rawNumbers: true }
           const result = XLSX.utils.sheet_to_json(workbook.Sheets[sheet], hdr);
-          console.log("Sheet Name: ", sheet);
+          console.log("Payment File Sheet Name: ", sheet);
           if (sheet == 'Payments') {
             if (paymentFileError(result)) { exitWithPayError(); return; }
             payments = [...result];
-            // console.log("Payment Raw records:", result);
             for (i = 0; i < payments.length; i++) {
               payments[i]['Cheque'] = chequeNumInStr(payments[i]['Comments / Details']);
             }
@@ -610,11 +645,7 @@ https://www.jsdelivr.com/package/npm/xlsx
             paymentsByUnit = {};
             payments.forEach(filterPaymentsByUnit);
             payDataReady = true;
-            if (!fileError) {
-              proceedWithRecon();
-              // const tableContainer = document.getElementById('payment-table-container');
-              // tableContainer.innerHTML = generateTable(paymentsByUnit, "CRM Payments");
-            }
+            if (!fileError) { proceedWithRecon(); }
           }
         });
       };
@@ -639,16 +670,11 @@ https://www.jsdelivr.com/package/npm/xlsx
             if (ledgerFileError(result)) { exitWithLedgerError(); return; }
             console.log("Ledger Lines: ", result.length);
             readLedgerReport(result, result.length);
-            console.log("Completed");
             sorted_result = sortEntries(ledgerEntries);
             ledgersByUnit = {};
             ledgerEntries.forEach(filterLedgerByUnit);
             ledgerDataReady = true;
-            if (!fileError) {
-              proceedWithRecon();
-              // const tableContainer = document.getElementById('ledger-table-container');
-              // tableContainer.innerHTML = generateTable(ledgersByUnit, "Finance Ledger");
-            }
+            if (!fileError) { proceedWithRecon(); }
           }
         });
       }
