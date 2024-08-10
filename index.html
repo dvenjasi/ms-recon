@@ -134,7 +134,9 @@ https://www.jsdelivr.com/package/npm/xlsx
       "DD": "Payment Amount matches with max 10 days diff in Payment Date",
       "DA": "Payment Amount matches with max 10 days diff in Alternate Payment Date",
       "PD": "Payment Amount with max Rs100 diff and Payment Date(s) max 10 days diff",
-      "PY": "Exact Match with previous year record - Payment Date and Payment Amount match"
+      "PY": "Exact Match with previous year record - Payment Date and Payment Amount match",
+      "TD": "Payment Amount match for a possible TDS tranction",
+      "AM": "Only Payment Amount match"
     }
   </script>
 
@@ -193,9 +195,14 @@ https://www.jsdelivr.com/package/npm/xlsx
       let customer = "";
       if (str == undefined || str == "") { return [unit, customer]; }
       for (const [key, value] of Object.entries(projects)) {
-        if (str.includes(key)) {
-          unit = value[0] + str.substring(value[1], value[2]);
-          customer = str.substring(value[3], value[4]);
+        // if (str.includes(key)) {
+        //   unit = value[0] + str.substring(value[1], value[2]);
+        //   customer = str.substring(value[3], value[4]);
+        // }
+        let pos = str.search(key);
+        if (pos != -1){
+          unit = value[0]+("0000"+str.substring(0,pos).substring(0,3).trim()).substr(-3); //.split("").reverse().join("");
+          customer = str.substring(pos+key.length).trim();
         }
       }
       return [unit, customer];
@@ -236,7 +243,8 @@ https://www.jsdelivr.com/package/npm/xlsx
           }
           if (newRecHdr) {
             let vchType = newItem['D'];
-            let desc = newItem['C'];
+            let d = newItem['C'];
+            let desc = d == undefined ? "" : d;
             if (newItem['A'] === undefined || newItem['D'] === undefined) { continue; }
             if (vchType == 'Journal' && !desc.includes('TDS Receivable')) { continue; }
             let newRec = { "Payment Date": "", "Sale ID": "", "Payment Amount": 0, "Customer Name": customer };
@@ -246,6 +254,7 @@ https://www.jsdelivr.com/package/npm/xlsx
               desc.includes('TDS Receivable') ? 'TDS Receivable ' + arr[ledgerIndex + 1]['C'] : arr[ledgerIndex + 1]['C'];
             newRec["AltDate"] = findDateInStr(newRec['Comments / Details']);
             newRec['Cheque'] = chequeNumInStr(newRec['Comments / Details']);
+            newRec['TDS'] = desc.includes('TDS Receivable');
             if (newItem['G'] != undefined && (vchType == 'Receipt' || vchType == 'Journal')) {
               newRec['Payment Amount'] = newItem['G'];
               ledgerEntries.push(newRec);
@@ -313,11 +322,12 @@ https://www.jsdelivr.com/package/npm/xlsx
       let chqstr = '';
       let chq = '';
       if (str == undefined || str == '') { return chq; }
-      res = str.match(/(\Chq no-|Chq no|CHEQUE NO|CHQ NO:|CHQ#|CHEQUE#|DD#|DD no|DD no:|DD no-)\d{3,6}/gi);
+      // res = str.match(/(\Chq no-|Chq no|CHEQUE NO|CHQ NO:|CHQ NUM |CHQ#|CHEQUE#|DD#|DD no|DD no:|DD no-)\d{3,6}/gi);
+      res = str.match(/(\CHEQUE NO|CHQ NO|CHQ NUM|CHQ|CQ NO|CHEQUE|DD NUM|DD NO|DD)[-# :]*\d{3,6}/gi);
       if (res != null) {
         chqstr = res[0];
         res = chqstr.match(/\d{3,6}/gi);
-        chq = res != null ? res[0] : '';
+        chq = res != null ? ("000000"+res[0]).substr(-6) : '';
       }
       return chq;
     }
@@ -486,10 +496,12 @@ https://www.jsdelivr.com/package/npm/xlsx
       let matchCd = '';
       if (pRec['Payment Amount'] == amt && pRec['Payment Date'] == dt) {
         matchCd = 'EM'; // Exact Match
-      } else if (EMOnly){
+      } if (EMOnly){
         return matchCd;
       } else if (pRec['Payment Amount'] == amt && pRec['Cheque'] != '' && pRec['Cheque'] == ledger['Cheque']) {
         matchCd = 'C#'; // Cheque # Match
+      } else if (ledger['TDS'] && pRec['TDS'] && pRec['Payment Amount'] == amt){
+        matchCd = 'TD'; // Tax payment, amount match
       } else if (pRec['Payment Amount'] == amt && pRec['Payment Date'] == ledger['AltDate']) {
         matchCd = 'DM'; // Alternate Date Match
       } else if (Math.abs(amt - pRec['Payment Amount']) < 100 && (pRec['Payment Date'] == ledger['AltDate'] || pRec['Payment Date'] == dt)) {
@@ -533,8 +545,38 @@ https://www.jsdelivr.com/package/npm/xlsx
       });
     }
 
+    function findMatchRecMisc(unitledgerRecs, payRecs){
+      unitledgerRecs.forEach((ledger, index, arr) => {
+        if (ledger.hasOwnProperty('Match')) { return; }
+        let unit = ledger['Unit'];
+        let matched = false;
+        let amt = ledger['Payment Amount'];
+        let dt = ledger['Payment Date'];
+        let lcomm = ledger['Comments / Details'];
+        payRecs.forEach((pRec, pInd, pArr) => {
+          let matchCd = '';
+          if (matched || pRec.hasOwnProperty('Match')) { return; }
+          let pAmt = pRec['Payment Amount'];
+          let pcomm = ledger['Comments / Details'];
+          if (amt == pAmt){
+            if (lcomm.includes('TDS') && pcomm.includes('TDS')){
+              matchCd = 'TD';
+            }
+            else { matchCd = 'AM';}
+          }
+          else {}
+          if (matchCd != '' && !matched) {
+            ledger['Match'] = matchCd + "(#" + mcount + ")";
+            pRec['Match'] = matchCd + "(#" + mcount + ")";
+            mcount++; matched = true;
+          }
+        });
+      });
+    }
+
     function findMatchRec(unitledgerRecs, payRecs, EMOnly){
       unitledgerRecs.forEach((ledger, index, arr) => {
+        if (ledger.hasOwnProperty('Match')) { return; }
         let unit = ledger['Unit'];
         let matched = false;
         let amt = ledger['Payment Amount'];
@@ -543,9 +585,11 @@ https://www.jsdelivr.com/package/npm/xlsx
           let matchCd = '';
           if (matched || pRec.hasOwnProperty('Match')) { return; }
           matchCd = matchRecords(pRec, ledger, EMOnly);
-          if (matchCd != '') {
-            ledgersByUnit[unit][index]['Match'] = matchCd + "(#" + mcount + ")";
-            paymentsByUnit[unit][pInd]['Match'] = matchCd + "(#" + mcount + ")";
+          if (matchCd != '' && !matched) {
+            // ledgersByUnit[unit][index]['Match'] = matchCd + "(#" + mcount + ")";
+            // paymentsByUnit[unit][pInd]['Match'] = matchCd + "(#" + mcount + ")";
+            ledger['Match'] = matchCd + "(#" + mcount + ")";
+            pRec['Match'] = matchCd + "(#" + mcount + ")";
             mcount++; matched = true;
           }
         });
@@ -565,6 +609,7 @@ https://www.jsdelivr.com/package/npm/xlsx
           let payRecs = paymentsByUnit[unit];
           findMatchRec(unitledgerRecs, payRecs, true);
           findMatchRec(unitledgerRecs, payRecs, false);
+          findMatchRecMisc(unitledgerRecs, payRecs);
         });
         reconPreviousYearPay();
         console.log("Ledgers :", ledgersByUnit);
@@ -638,8 +683,10 @@ https://www.jsdelivr.com/package/npm/xlsx
           if (sheet == 'Payments') {
             if (paymentFileError(result)) { exitWithPayError(); return; }
             payments = [...result];
+            console.log("All Payments: ", result);
             for (i = 0; i < payments.length; i++) {
               payments[i]['Cheque'] = chequeNumInStr(payments[i]['Comments / Details']);
+              payments[i]['TDS'] = payments[i]['Comments / Details'] == undefined ? false : payments[i]['Comments / Details'].includes('TDS');
             }
             payments = sortEntries(payments);
             paymentsByUnit = {};
