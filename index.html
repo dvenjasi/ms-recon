@@ -52,7 +52,13 @@
           </select>
         </td>
         <td>&nbsp;</td>
-        <td>&nbsp;
+        <td>
+          <label for="gst">Payment Amount Consideration</label>
+          <select name="gst" id="gst">
+            <option value="" selected="selected">FULL - with NO deductions</option>
+            <option value="5">Already Deducted 5% for GST</option>
+            <option value="18">Already Deducted 18% for GST</option>
+          </select>          
         </td>
       </tr>
     </table>
@@ -121,9 +127,16 @@ https://www.jsdelivr.com/package/npm/xlsx
       "FY2024-25": ["2024-04-01", "2025-03-31"]
     }
     let projects = {
-      "Engrace 1": ["E1-", 0, 3, 14, 40],
-      "Engrace-1": ["E1-", 0, 3, 14, 40],
-      "Engrace 01": ["E1-", 0, 3, 17, 40]
+      "Engrace 1": [0, "E1-", 0],
+      "Engrace-1": [0, "E1-", 0],
+      "Engrace 01": [0, "E1-", 0],
+      "Engrace 3": [0, "E3-", 0],
+      "ENGRACE 3": [0, "E3-", 0],
+      "Engrace-3": [0, "E3-", 0],
+      "Engrace3": [0, "E3-", 0], 
+      "Engrace -3": [0, "E3-", 0],
+      "ENG 3": [0, "E3-", 0],
+      "EV-": [1, 3, 10, 11, 45, "-", true]
     };
     let matchCodeDesc = {
       "NOMATCH": "No Match Found",
@@ -151,6 +164,7 @@ https://www.jsdelivr.com/package/npm/xlsx
     let fyYear;
     let minDt;
     let maxDt;
+    let gst;
     let payDataReady = false;
     let ledgerDataReady = false;
     let reconDone = false;
@@ -195,21 +209,22 @@ https://www.jsdelivr.com/package/npm/xlsx
       let customer = "";
       if (str == undefined || str == "") { return [unit, customer]; }
       for (const [key, value] of Object.entries(projects)) {
-        // if (str.includes(key)) {
-        //   unit = value[0] + str.substring(value[1], value[2]);
-        //   customer = str.substring(value[3], value[4]);
-        // }
         let pos = str.search(key);
-        if (pos != -1){
-          unit = value[0]+("0000"+str.substring(0,pos).substring(0,3).trim()).substr(-3); //.split("").reverse().join("");
+        if (pos == -1) continue;
+        if (value[0] == 0){
+          unit = value[1]+("0000"+str.substring(0,pos).substring(0,3).trim()).substr(-3); //.split("").reverse().join("");
           customer = str.substring(pos+key.length).trim();
+        }
+        if (value[0] == 1){
+          let uu = str.substring(value[1], value[2]).split(value[5]); 
+          unit = uu[0] + "-" + (value[6] ? uu[1].replace(/^0+/,'') : uu[1]); 
+          customer = str.substring(value[3], value[4]);
         }
       }
       return [unit, customer];
     }
 
     function filterLedgerByUnit(item, index, arr) {
-      // ledgersByUnit;
       let payDt = item['Payment Date'];
       if (payDt == undefined) { return; }
       if (payDt >= minDt && payDt <= maxDt) {
@@ -220,7 +235,6 @@ https://www.jsdelivr.com/package/npm/xlsx
     }
 
     function filterPaymentsByUnit(item, index, arr) {
-      // paymentsByUnit;
       let payDt = item['Payment Date'];
       if (payDt == undefined) { return; }
       if (payDt >= minDt && payDt <= maxDt) {
@@ -247,7 +261,7 @@ https://www.jsdelivr.com/package/npm/xlsx
             let desc = d == undefined ? "" : d;
             if (newItem['A'] === undefined || newItem['D'] === undefined) { continue; }
             if (vchType == 'Journal' && !desc.includes('TDS Receivable')) { continue; }
-            let newRec = { "Payment Date": "", "Sale ID": "", "Payment Amount": 0, "Customer Name": customer };
+            let newRec = { "Payment Date": "", "Payment Amount": 0, "Customer Name": customer };
             newRec['Payment Date'] = newItem['A']; //formatDate(newItem['A']);
             newRec['Unit'] = unit;
             newRec['Comments / Details'] =
@@ -302,6 +316,10 @@ https://www.jsdelivr.com/package/npm/xlsx
         if (typeof amt === 'string') { amt = amt.replace(",", "").replace("₹", ""); }
         arr[index]['Payment Amount'] = parseInt(amt);
       }
+      if (gst != "" && !arr[index]['TDS'] && arr[index]['Sale ID'] === undefined){ // only for ledger non-TDS entries
+        arr[index]['OldAmount'] = arr[index]['Payment Amount'];
+        arr[index]['Payment Amount'] = Math.round (arr[index]['OldAmount'] * (100+parseInt(gst))/100);
+      }
       if (arr[index]['Payment Date'] == undefined) {
         arr[index]['Payment Date'] = "";
       } else {
@@ -321,7 +339,7 @@ https://www.jsdelivr.com/package/npm/xlsx
       let res = '';
       let chqstr = '';
       let chq = '';
-      if (str == undefined || str == '') { return chq; }
+      if (str == undefined || str == '' || typeof str != 'string') { return chq; }
       // res = str.match(/(\Chq no-|Chq no|CHEQUE NO|CHQ NO:|CHQ NUM |CHQ#|CHEQUE#|DD#|DD no|DD no:|DD no-)\d{3,6}/gi);
       res = str.match(/(\CHEQUE NO|CHQ NO|CHQ NUM|CHQ|CQ NO|CHEQUE|DD NUM|DD NO|DD)[-# :]*\d{3,6}/gi);
       if (res != null) {
@@ -369,11 +387,10 @@ https://www.jsdelivr.com/package/npm/xlsx
       const reconContainer = document.getElementById('recon-table-container');
       let reconRpt = '';
       let reconsummary = { "NOMATCH": { 'Ledger': [0, 0], 'crm': [0, 0] } };
-      let units = Object.keys(ledgersByUnit);
+      let units = Object.keys(ledgersByUnit).sort();
       for (i = 0; i < units.length; i++) {
         reconRpt += buildUnitReconRpt(units[i], reconsummary);
       }
-      // reconRpt = buildUnitReconRpt('E1-103');
       reconContainer.innerHTML = "<h2>Recon Details:</h2><table>" + headerUnitReconRpt() + reconRpt + "</table>";
       console.log("Recon Summary", reconsummary);
       buildReconSummaryRpt(reconsummary);
@@ -389,8 +406,6 @@ https://www.jsdelivr.com/package/npm/xlsx
         let lamt = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(stats[matchCd]['Ledger'][1]);
         let camt = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(stats[matchCd]['crm'][1]);
         table += `<tr><td>${matchCd} - ${desc}</td>`;
-        // table += `<td>${stats[matchCd]['Ledger'][0]} (₹${stats[matchCd]['Ledger'][1]})</td>`;
-        // table += `<td>${stats[matchCd]['crm'][0]} (₹${stats[matchCd]['crm'][1]})</td></tr>`;
         table += `<td>${stats[matchCd]['Ledger'][0]} (${lamt})</td>`;
         table += `<td>${stats[matchCd]['crm'][0]} (${camt})</td></tr>`;
       }
@@ -438,7 +453,9 @@ https://www.jsdelivr.com/package/npm/xlsx
       }
       else {
         let matDt = getdispDate(matRec['Payment Date']);
-        html += `<td>${unit}</td><td>${matDt}</td><td>${matRec['Payment Amount']}</td></tr>`;
+        html += `<td>${unit}</td><td>${matDt}</td><td>${matRec['Payment Amount']}`;
+        html += matRec['OldAmount'] != undefined ? `&nbsp;(w/o GST ${matRec['OldAmount']})`: " ";
+        html += `</td></tr>`;
         html += `<tr><td colspan=8><small><i><strong>Ledger Remark: </strong>${matRec['Comments / Details']}</i></small></td></tr>`;
       }
       if (payRec != undefined && payRec != null) {
@@ -586,8 +603,6 @@ https://www.jsdelivr.com/package/npm/xlsx
           if (matched || pRec.hasOwnProperty('Match')) { return; }
           matchCd = matchRecords(pRec, ledger, EMOnly);
           if (matchCd != '' && !matched) {
-            // ledgersByUnit[unit][index]['Match'] = matchCd + "(#" + mcount + ")";
-            // paymentsByUnit[unit][pInd]['Match'] = matchCd + "(#" + mcount + ")";
             ledger['Match'] = matchCd + "(#" + mcount + ")";
             pRec['Match'] = matchCd + "(#" + mcount + ")";
             mcount++; matched = true;
@@ -686,7 +701,7 @@ https://www.jsdelivr.com/package/npm/xlsx
             console.log("All Payments: ", result);
             for (i = 0; i < payments.length; i++) {
               payments[i]['Cheque'] = chequeNumInStr(payments[i]['Comments / Details']);
-              payments[i]['TDS'] = payments[i]['Comments / Details'] == undefined ? false : payments[i]['Comments / Details'].includes('TDS');
+              payments[i]['TDS'] = typeof payments[i]['Comments / Details'] != 'string' ? false : payments[i]['Comments / Details'].includes('TDS');
             }
             payments = sortEntries(payments);
             paymentsByUnit = {};
@@ -747,6 +762,7 @@ https://www.jsdelivr.com/package/npm/xlsx
       console.log("Reading File.");
       e.preventDefault();
       fyYear = document.querySelector('#fyYear').value;
+      gst = document.querySelector('#gst').value;
       minDt = reconDate[fyYear][0];
       maxDt = reconDate[fyYear][1];
       payDataReady = false;
