@@ -178,7 +178,7 @@ https://www.jsdelivr.com/package/npm/xlsx
       console.log("Generating UNMATCHED table for ", type, ty);
       let table = `<h2>Details of UNMATCHED ${type} records</h2><small><table class="smalltable">`;
       table += '<tr>';
-      table += ty ? '' : '<th width=10%>Sale ID</th>';
+      table += ty ? '' : '<th width=7%>Sale ID</th><th width=8%>Sale Status</th>';
       table += '<th width=5%>Unit</th><th width=15%>Customer Name</th>';
       table += '<th width=10%>Payment Amount</th><th width=10%>Payment Date</th><th width=60%>Comments / Details</th>';
       table += '</tr>';
@@ -190,7 +190,7 @@ https://www.jsdelivr.com/package/npm/xlsx
           let paydt = getdispDate(item['Payment Date']);
           if (matchCd != null && matchCd != undefined) { return; }
           table += '<tr>';
-          table += ty ? '' : `<td>${item['Sale ID']}</td>`;
+          table += ty ? '' : `<td>${item['Sale ID']}</td><td>${item['Sale Status']}</td>`;
           table += `<td>${item['Unit']}</td><td>${item['Customer Name']}</td>`;
           table += `<td>${item['Payment Amount']}</td><td>${paydt}</td><td>${item['Comments / Details']}</td>`;
           table += '</tr>';
@@ -460,6 +460,11 @@ https://www.jsdelivr.com/package/npm/xlsx
       }
       if (payRec != undefined && payRec != null) {
         html += `<tr><td colspan=8><small><i><strong>CRM Remark: </strong>${payRec['Comments / Details']}</i></small></td></tr>`;
+        if ( payRec['Sale Status'] != 'Active'){
+          html += `<tr><td style="color: green;" colspan=8><small><i><strong>Sale Status: </strong>`;
+          html += `${payRec['Sale Status']} <i><strong>Customer: </strong> ${payRec['Customer Name']} `;
+          html += `</i></small></td></tr>`;
+        }
       }
       html += '<tr><td colspan=8><hr/></td></tr>';
       return html;
